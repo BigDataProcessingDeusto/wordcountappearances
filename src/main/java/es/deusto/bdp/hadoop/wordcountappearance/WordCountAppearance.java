@@ -1,6 +1,10 @@
 package es.deusto.bdp.hadoop.wordcountappearance;
 
 import java.io.IOException;
+import java.lang.Comparable;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -76,6 +80,72 @@ public class WordCountAppearance {
             }
     }
 
+    public static class Tuple implements Comparable<Tuple> {
+        private String key;
+        private int value;
+
+        public Tuple() { }
+        public Tuple(String key, int value) {
+            this.key = key;
+            this.value = value;
+        }
+
+        public void setKey(String key) {
+            this.key = key;
+        }
+
+        public void setValue(int value) {
+            this.value = value;
+        }
+
+        public String getKey() {
+            return this.key;
+        }
+
+        public int getValue() {
+            return this.value;
+        }
+
+        @Override
+        public int compareTo(Tuple otherTuple) {
+            return Integer.compare(this.value, otherTuple.getValue());
+        }
+    }
+
+    public static class AppearanceSortingMapper
+        extends Mapper<Object, Text, Text, Text> {
+
+            public void map(Object Key, Text value, Context context
+                        ) throws IOException, InterruptedException {
+
+                context.write(new Text("result"), value);
+
+            }
+
+    }
+
+    public static class AppearanceSortingReducer
+        extends Reducer<Text, Text, Text, IntWritable> {
+                public void reduce(Text key, Iterable<Text> values, Context context
+                            ) throws IOException, InterruptedException {
+
+                    List<Tuple> results = new ArrayList<Tuple>();
+
+                    for (Text value : values) {
+                        String[] strTuple = value.toString().split("\t");
+
+                        Tuple tuple = new Tuple(strTuple[0], Integer.parseInt(strTuple[1]));
+                        results.add(tuple);
+                    }
+
+                    Collections.sort(results);
+                    Collections.reverse(results);
+                    for (Tuple result : results) {
+                        context.write(new Text(result.getKey()), new IntWritable(result.getValue()));
+                    }
+                }
+        }
+
      public static void main(String[] args) throws Exception {
         Configuration conf = new Configuration();
         Job job1 = Job.getInstance(conf, "WordCount");
@@ -104,6 +174,23 @@ public class WordCountAppearance {
         FileInputFormat.addInputPath(job2, new Path(args[1]));
         FileOutputFormat.setOutputPath(job2, new Path(args[2]));
 
-        System.exit(job2.waitForCompletion(true) ? 0 : 1);
+        job2.waitForCompletion(true);
+
+        Job job3 = Job.getInstance(conf, "AppearanceSorting");
+        job3.setJarByClass(WordCountAppearance.class);
+        job3.setMapperClass(AppearanceSortingMapper.class);
+        //job3.setCombinerClass(AppearanceSortingReducer.class);
+        job3.setReducerClass(AppearanceSortingReducer.class);
+
+        job3.setMapOutputKeyClass(Text.class);
+        job3.setMapOutputValueClass(Text.class);
+
+        job3.setOutputKeyClass(Text.class);
+        job3.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job3, new Path(args[2]));
+        FileOutputFormat.setOutputPath(job3, new Path(args[3]));
+
+        System.exit(job3.waitForCompletion(true) ? 0 : 1);
     }
 }
